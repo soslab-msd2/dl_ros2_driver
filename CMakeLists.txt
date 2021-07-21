@@ -18,14 +18,14 @@ include_directories(
     ${OpenCV_INCLUDE_DIRS}
 )
 
-add_library(dl_ros2_driver
-    include/dl_ros2_driver.cpp
+add_library(dl_driver
+    include/dl_driver.cpp
 )
 
 add_executable(${PROJECT_NAME}_node ${CMAKE_CURRENT_SOURCE_DIR}/src/${PROJECT_NAME}_node.cpp)
 target_link_libraries(${PROJECT_NAME}_node
     ${OpenCV_LIBRARIES}
-    dl_ros2_driver
+    dl_driver
 )
 ament_target_dependencies(${PROJECT_NAME}_node 
     rclcpp

@@ -11,7 +11,7 @@
 
 #include <fstream>
 
-#include "dl_ros2_driver.h"
+#include "dl_driver.h"
 
 
 using namespace std::chrono_literals;
@@ -273,7 +273,7 @@ void DLROS2Driver::CvtToMatAmplitude(cv::Mat image_out, const std::vector<uint16
 {
     cv::Mat image = image_out.clone();
 
-    double max_value = 1500;//-99999;
+    double max_value = 4000;//-99999;
     double min_value = 10;//99999;
     // for(int i=0; i<data.size(); i++)
     // {
