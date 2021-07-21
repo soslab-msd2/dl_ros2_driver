@@ -18,9 +18,11 @@ include_directories(
     ${OpenCV_INCLUDE_DIRS}
 )
 
+if (NOT TARGET dl_driver)
 add_library(dl_driver
     include/dl_driver.cpp
 )
+endif()
 
 add_executable(${PROJECT_NAME}_node ${CMAKE_CURRENT_SOURCE_DIR}/src/${PROJECT_NAME}_node.cpp)
 target_link_libraries(${PROJECT_NAME}_node
