@@ -1,6 +1,6 @@
 
-#ifndef DLDRIVER_H
-#define DLDRIVER_H
+#ifndef DLROS2DRIVER_H
+#define DLROS2DRIVER_H
 
 #include <stdio.h> 
 #include <unistd.h> 

@@ -1,7 +1,5 @@
 
 #include "rclcpp/rclcpp.hpp"
-#include "rclcpp/time_source.hpp"
-#include "sensor_msgs/msg/laser_scan.hpp"
 #include "sensor_msgs/msg/image.hpp"
 #include "sensor_msgs/msg/point_cloud.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
@@ -9,7 +7,6 @@
 
 #include <opencv2/opencv.hpp>
 
-#include <fstream>
 
 #include "dl_driver.h"
 
@@ -30,7 +27,6 @@ public:
         pointcloud_pub = create_publisher<sensor_msgs::msg::PointCloud2>(pub_topicname_pointcloud, 10);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
-
         timer = create_wall_timer(20ms, std::bind(&DLROS2Driver::TimerCallback, this));
 
         InitDL();
@@ -53,9 +49,10 @@ private:
     void TimerCallback(void);
 
     void InitDL(void);
-    void CvtToMatDistance(cv::Mat image, const std::vector<uint16_t>& data, int max_value);
+    void CvtToMatDistance(cv::Mat image, const std::vector<uint16_t>& data);
     void CvtToMatAmplitude(cv::Mat image, const std::vector<uint16_t>& data);
-    void CvtToPointcloud(sensor_msgs::msg::PointCloud2& pointcloud2_msg, std::vector<uint16_t>& data_distance, const std::vector<uint16_t>& data_amplitude, int height, int width);
+    void CvtToMatRange(cv::Mat image, const std::vector<uint16_t>& data, const std::vector<uint16_t>& data_amplitude);
+    void CvtToPointcloudMsg(sensor_msgs::msg::PointCloud2& pointcloud2_msg, cv::Mat image);
     std::string mat_type2encoding(int mat_type);
     void PubImage(const cv::Mat& image_distance, const cv::Mat& image_amplitude, const sensor_msgs::msg::PointCloud2& pointcloud2_msg);
 
@@ -194,9 +191,11 @@ void DLROS2Driver::TimerCallback(void)
 
         cv::Mat image_distance = cv::Mat::zeros(distance_amplitude_img.payload_header.height, distance_amplitude_img.payload_header.width, CV_8UC3);
         cv::Mat image_amplitude = cv::Mat::zeros(distance_amplitude_img.payload_header.height, distance_amplitude_img.payload_header.width, CV_8UC3);
+        cv::Mat image_range = cv::Mat::zeros(distance_amplitude_img.payload_header.height, distance_amplitude_img.payload_header.width, CV_64FC2);
 
-        CvtToMatDistance(image_distance, distance_amplitude_img.distance, max_distance);
+        CvtToMatDistance(image_distance, distance_amplitude_img.distance);
         CvtToMatAmplitude(image_amplitude, distance_amplitude_img.amplitude);
+        CvtToMatRange(image_range, distance_amplitude_img.distance, distance_amplitude_img.amplitude);
 
         cv::Mat image_amplitude_gray;
         cv::cvtColor(image_amplitude, image_amplitude_gray, cv::COLOR_BGR2GRAY);
@@ -207,7 +206,7 @@ void DLROS2Driver::TimerCallback(void)
         clahe->apply(image_amplitude_gray, image_amplitude_gray);
 
         sensor_msgs::msg::PointCloud2 pointcloud2_msg;
-        CvtToPointcloud(pointcloud2_msg, distance_amplitude_img.distance, distance_amplitude_img.amplitude, distance_amplitude_img.payload_header.height, distance_amplitude_img.payload_header.width);
+        CvtToPointcloudMsg(pointcloud2_msg, image_range);
 
         PubImage(image_distance, image_amplitude_gray, pointcloud2_msg);
     }
@@ -226,13 +225,13 @@ void DLROS2Driver::InitDL(void)
     dl->SetStreamDistanceAmplitude();
 }
 
-void DLROS2Driver::CvtToMatDistance(cv::Mat image_out, const std::vector<uint16_t>& data, int max_value)
+void DLROS2Driver::CvtToMatDistance(cv::Mat image_out, const std::vector<uint16_t>& data)
 {
     cv::Mat image = image_out.clone();
 
     for(int i=0; i<data.size(); i++)
     {
-        double normalized_radius = ((double)data[i])/max_value*4.0;
+        double normalized_radius = ((double)data[i])/max_distance*4.0;
         double height_sublevel = normalized_radius - (int)normalized_radius;
 
         int x = i % image.cols;
@@ -240,7 +239,7 @@ void DLROS2Driver::CvtToMatDistance(cv::Mat image_out, const std::vector<uint16_
 
         if( x>=0 && x<image.cols && y>=0 && y<image.rows )
         {
-            if(data[i]<=(max_value))
+            if(data[i]<=(max_distance))
             {
                 if(0.0<=normalized_radius && normalized_radius<1.0)
                     image.at<cv::Vec3b>(y,x) = { 0, (int)(height_sublevel*255), 255 };
@@ -259,8 +258,6 @@ void DLROS2Driver::CvtToMatDistance(cv::Mat image_out, const std::vector<uint16_
             }
         }
     }
-    if(flip_rightleft==true) cv::flip(image, image, 1);
-    if(flip_updown==true) cv::flip(image, image, 0);
     
     cv::Mat camera_matrix = cv::Mat::eye(3, 3, CV_64FC1);
     cv::Mat distortion_coefficients = cv::Mat::zeros(1, 5, CV_64FC1);
@@ -273,7 +270,7 @@ void DLROS2Driver::CvtToMatAmplitude(cv::Mat image_out, const std::vector<uint16
 {
     cv::Mat image = image_out.clone();
 
-    double max_value = 4000;//-99999;
+    double max_value = 1500;//-99999;
     double min_value = 10;//99999;
     // for(int i=0; i<data.size(); i++)
     // {
@@ -308,8 +305,6 @@ void DLROS2Driver::CvtToMatAmplitude(cv::Mat image_out, const std::vector<uint16
             }
         }
     }
-    if(flip_rightleft==true) cv::flip(image, image, 1);
-    if(flip_updown==true) cv::flip(image, image, 0);
 
     cv::Mat camera_matrix = cv::Mat::eye(3, 3, CV_64FC1);
     cv::Mat distortion_coefficients = cv::Mat::zeros(1, 5, CV_64FC1);
@@ -318,7 +313,35 @@ void DLROS2Driver::CvtToMatAmplitude(cv::Mat image_out, const std::vector<uint16
     undistort(image, image_out, camera_matrix, distortion_coefficients);
 }
 
-void DLROS2Driver::CvtToPointcloud(sensor_msgs::msg::PointCloud2& pointcloud2_msg, std::vector<uint16_t>& data_distance, const std::vector<uint16_t>& data_amplitude, int height, int width)
+void DLROS2Driver::CvtToMatRange(cv::Mat image_out, const std::vector<uint16_t>& data, const std::vector<uint16_t>& data_amplitude)
+{
+    cv::Mat image = image_out.clone();
+
+    for(int i=0; i<data.size(); i++)
+    {
+        int x = i % image.cols;
+        int y = i / image.cols;
+
+        if((double)data[i]>0 && (double)data[i]<20000)
+        {
+            image.at<cv::Vec2d>(y,x)[0] = (double)data[i]/1000.0;
+        }
+        else
+        {
+            image.at<cv::Vec2d>(y,x)[0] = -10000000.0;
+        }
+
+        image.at<cv::Vec2d>(y,x)[1] = (double)data_amplitude[i];
+    }
+    
+    cv::Mat camera_matrix = cv::Mat::eye(3, 3, CV_64FC1);
+    cv::Mat distortion_coefficients = cv::Mat::zeros(1, 5, CV_64FC1);
+    camera_matrix = (cv::Mat1d(3, 3) << cam_cal_fx, 0.0, cam_cal_cx, 0.0, cam_cal_fy, cam_cal_cy, 0.0, 0.0, 1.0 ); 
+    distortion_coefficients = (cv::Mat1d(1, 5) << cam_cal_k1, cam_cal_k2, cam_cal_p1, cam_cal_p2, 0.0);
+    undistort(image, image_out, camera_matrix, distortion_coefficients);
+}
+
+void DLROS2Driver::CvtToPointcloudMsg(sensor_msgs::msg::PointCloud2& pointcloud2_msg, cv::Mat image)
 {
     sensor_msgs::msg::PointCloud pointcloud_msg;
     pointcloud_msg.header.frame_id = frame_id;
@@ -327,71 +350,41 @@ void DLROS2Driver::CvtToPointcloud(sensor_msgs::msg::PointCloud2& pointcloud2_ms
 
     if(filter_on==true)
     {
-        for(int row_idx=0; row_idx<height; row_idx++)    
+        for(int x_idx=0; x_idx<image.cols; x_idx++)    
         {
-            for(int i=row_idx*width; i<(row_idx*width+width)-1; i++)
+            for(int y_idx=0; y_idx<(image.rows-1); y_idx++)
             {
-                if(data_distance[i]>0 && data_distance[i+1]>0)
+                if(image.at<cv::Vec2d>(y_idx,x_idx)[0]>0 && image.at<cv::Vec2d>(y_idx+1,x_idx)[0]>0)
                 {
-                    double diff = (data_distance[i]-data_distance[i+1])/1000.0/2.0;
-                    if(diff>0.025*data_distance[i]/1000.0) data_distance[i] = 0;
-                    if(diff<-0.025*data_distance[i]/1000.0) data_distance[i] = 0;
+                    double diff = (image.at<cv::Vec2d>(y_idx,x_idx)[0]-image.at<cv::Vec2d>(y_idx+1,x_idx)[0])/2.0;
+                    if(diff>0.025*image.at<cv::Vec2d>(y_idx,x_idx)[0]) image.at<cv::Vec2d>(y_idx,x_idx)[0] = 0.0;
+                    if(diff<-0.025*image.at<cv::Vec2d>(y_idx,x_idx)[0]) image.at<cv::Vec2d>(y_idx,x_idx)[0] = 0.0;
                 }
             }
         }
 
-        for(int col_idx=0; col_idx<width; col_idx++)
+        for(int y_idx=0; y_idx<image.rows; y_idx++)    
         {
-            for(int i=col_idx; i<width*(height-1); i+=width)
+            for(int x_idx=0; x_idx<(image.cols-1); x_idx++)
             {
-                if(data_distance[i]>0 && data_distance[i+width]>0)
+                if(image.at<cv::Vec2d>(y_idx,x_idx)[0]>0 && image.at<cv::Vec2d>(y_idx,x_idx+1)[0]>0)
                 {
-                    double diff = (data_distance[i]-data_distance[i+width])/1000.0/2.0;
-                    if(diff>0.025*data_distance[i]/1000.0) data_distance[i] = 0;
-                    if(diff<-0.025*data_distance[i]/1000.0) data_distance[i] = 0;
+                    double diff = (image.at<cv::Vec2d>(y_idx,x_idx)[0]-image.at<cv::Vec2d>(y_idx,x_idx+1)[0])/2.0;
+                    if(diff>0.025*image.at<cv::Vec2d>(y_idx,x_idx)[0]) image.at<cv::Vec2d>(y_idx,x_idx)[0] = 0.0;
+                    if(diff<-0.025*image.at<cv::Vec2d>(y_idx,x_idx)[0]) image.at<cv::Vec2d>(y_idx,x_idx)[0] = 0.0;
                 }
             }
         }
     }
-
-    for(int i=0; i<data_distance.size(); i++)
+        
+    for(int x_idx=0; x_idx<image.cols; x_idx++)
     {
-        int x_idx = i % width;
-        int y_idx = i / width;
-
-        double x = (double)x_idx;
-        double y = (double)y_idx;
-
-        double x_nu = (x-cam_cal_cx)/cam_cal_fx;
-        double y_nu = (y-cam_cal_cy)/cam_cal_fy;
-
-        double x_pu = x_nu;
-        double y_pu = y_nu;
-        
-        for(int count=0; count<10; count++)
+        for(int y_idx=0; y_idx<image.rows; y_idx++)
         {
-            double ru2 = x_pu*x_pu + y_pu*y_pu;	// ru2 = ru*ru
-            double radial_d = 1 + cam_cal_k1*ru2 + cam_cal_k2*ru2*ru2;
+            double distance = image.at<cv::Vec2d>(y_idx,x_idx)[0] - 0.2;
 
-            double x_nd = radial_d*x_pu + 2*cam_cal_p1*x_pu*y_pu + cam_cal_p2*(ru2 + 2*x_pu*x_pu);
-            double y_nd = radial_d*y_pu + cam_cal_p1*(ru2 + 2*y_pu*y_pu) + 2*cam_cal_p2*x_nu*y_pu;
-
-            double error_x = x_nd - x_nu;
-            double error_y = y_nd - y_nu;
-
-            x_pu = x_pu - error_x;
-            y_pu = y_pu - error_y;
-        }
-
-        double x_pd = cam_cal_fx*x_pu + cam_cal_cx;
-        double y_pd = cam_cal_fy*y_pu + cam_cal_cy;
-        
-        if( x_pd>=0 && x_pd<width && y_pd>=0 && y_pd<height )
-        {
-            double distance = (double)data_distance[i]/1000.0 - 0.2;
-
-            double x_n = (x_pd-(double)cam_cal_cx)/cam_cal_fx;
-            double y_n = (y_pd-(double)cam_cal_cy)/cam_cal_fy;
+            double x_n = ((double)x_idx-cam_cal_cx)/cam_cal_fx;
+            double y_n = ((double)y_idx-cam_cal_cy)/cam_cal_fy;
 
             double point_z = distance / sqrt(1+x_n*x_n+y_n*y_n);
             double point_x = x_n*point_z;
@@ -402,10 +395,10 @@ void DLROS2Driver::CvtToPointcloud(sensor_msgs::msg::PointCloud2& pointcloud2_ms
             single_point.y = -point_y;
             single_point.z = point_z;
 
-            if(distance>0.0 && distance<max_distance/1000.0)
+            if(distance>0.0)
             {
                 pointcloud_msg.points.push_back(single_point);
-                pointcloud_msg.channels[0].values.push_back((double)data_amplitude[i]);
+                pointcloud_msg.channels[0].values.push_back((double)image.at<cv::Vec2d>(y_idx,x_idx)[1]);
             }
         }
     }
@@ -432,6 +425,17 @@ std::string DLROS2Driver::mat_type2encoding(int mat_type)
 
 void DLROS2Driver::PubImage(const cv::Mat& image_distance, const cv::Mat& image_amplitude, const sensor_msgs::msg::PointCloud2& pointcloud2_msg) 
 {
+    if(flip_rightleft==true)
+    {
+        cv::flip(image_distance, image_distance, 1);
+        cv::flip(image_amplitude, image_amplitude, 1);
+    } 
+    if(flip_updown==true) 
+    {
+        cv::flip(image_distance, image_distance, 0);
+        cv::flip(image_amplitude, image_amplitude, 0);
+    }
+
     // Publish distance image
     sensor_msgs::msg::Image distance_image_msg;
     distance_image_msg.header.stamp = rclcpp::Clock().now();

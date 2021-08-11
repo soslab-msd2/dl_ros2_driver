@@ -18,7 +18,7 @@ def generate_launch_description():
             {'pc_port': 45454},
 
             {'max_distance': 15000},
-            {'integration_time_low': 1000},
+            {'integration_time_low': 3000},
             {'integration_time_mid': 0},
             {'integration_time_high': 0},
             {'integration_time_grayscale': 0},
