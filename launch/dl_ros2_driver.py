@@ -18,8 +18,8 @@ def generate_launch_description():
             {'pc_port': 45454},
 
             {'max_distance': 15000},
-            {'integration_time_low': 3000},
-            {'integration_time_mid': 0},
+            {'integration_time_low': 1000},
+            {'integration_time_mid': 1000},
             {'integration_time_high': 0},
             {'integration_time_grayscale': 0},
             {'hdr': 0},   # 0 = off, 1 = HDR1, 2 = HDR2

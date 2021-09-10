@@ -59,39 +59,12 @@ private:
 
 private:
     /************************** Launch variables *****************************/
-    std::string dl_ip = "10.10.31.180";
-    int dl_tcp_port = 50660;
-    int pc_port = 45454;
-
-    int max_distance = 2000;
-    int integration_time_low = 10;
-    int integration_time_mid = 100;
-    int integration_time_high = 1000;
-    int integration_time_grayscale = 1000;
-    int hdr = 0;
-    int modulation_frequency = 0;
-    int modulation_channel = 0;
-    int modulation_auto_channel = 0;
-    int min_amplitude = 0;
-    int offset = 0;
-
-    double cam_cal_fx = 204.374692;
-    double cam_cal_fy = 206.172834;
-    double cam_cal_cx = 164.42;
-    double cam_cal_cy = 122.842145;
-    double cam_cal_k1 = -0.378984;
-    double cam_cal_k2 = 0.108586;
-    double cam_cal_p1 = -0.001025;
-    double cam_cal_p2 = -0.001098;
-
-    bool filter_on = true;
-    bool flip_rightleft = false;
-    bool flip_updown = false;
-
-    std::string frame_id = "base_link";
-    std::string pub_topicname_distance_image = "image_distance";
-    std::string pub_topicname_amplitude_image = "image_amplitude";
-    std::string pub_topicname_pointcloud = "pointcloud";
+    std::string dl_ip;
+    int dl_tcp_port, pc_port;
+    int max_distance, integration_time_low, integration_time_mid, integration_time_high, integration_time_grayscale, hdr, modulation_frequency, modulation_channel, modulation_auto_channel, min_amplitude, offset;
+    double cam_cal_fx, cam_cal_fy, cam_cal_cx, cam_cal_cy, cam_cal_k1, cam_cal_k2, cam_cal_p1, cam_cal_p2;
+    bool filter_on, flip_rightleft, flip_updown;
+    std::string frame_id, pub_topicname_distance_image, pub_topicname_amplitude_image, pub_topicname_pointcloud;
 
     rclcpp::TimerBase::SharedPtr timer;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr distance_image_pub;
